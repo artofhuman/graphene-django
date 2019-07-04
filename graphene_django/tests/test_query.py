@@ -1065,3 +1065,73 @@ def test_should_resolve_get_queryset_connectionfields():
     result = schema.execute(query)
     assert not result.errors
     assert result.data == expected
+
+
+def test_should_use_only_fields_in_db_query(django_assert_num_queries):
+    Reporter.objects.create(
+        first_name="John", last_name="Doe", email="johndoe@example.com", a_choice=1j
+    )
+
+    class ReporterType(DjangoObjectType):
+        class Meta:
+            model = Reporter
+            interfaces = (Node,)
+            only_fields = ("first_name", "email")
+
+    class ReporterTypeWithAllFields(DjangoObjectType):
+        class Meta:
+            model = Reporter
+            interfaces = (Node,)
+
+    class Query(graphene.ObjectType):
+        all_reporters = DjangoConnectionField(ReporterType)
+        all_reporters_with_all_fields = DjangoConnectionField(ReporterTypeWithAllFields)
+
+    schema = graphene.Schema(query=Query)
+    query = """
+        query ReporterConnectionQuery {
+          allReporters {
+            pageInfo {
+              hasNextPage
+            }
+            edges {
+              node {
+                id
+              }
+            }
+          }
+        }
+    """
+
+    with django_assert_num_queries(3) as captured:
+        schema.execute(query)
+        assert captured[1]['sql'] == (
+            'SELECT '
+            '"tests_reporter"."id", "tests_reporter"."first_name", "tests_reporter"."email" '
+            'FROM "tests_reporter"  LIMIT 1'
+        )
+
+    query = """
+        query ReporterConnectionQuery {
+          allReportersWithAllFields {
+            pageInfo {
+              hasNextPage
+            }
+            edges {
+              node {
+                id
+              }
+            }
+          }
+        }
+    """
+
+    with django_assert_num_queries(2) as captured:
+        schema.execute(query)
+
+        assert captured[1]['sql'] == (
+            'SELECT '
+            '"tests_reporter"."id", "tests_reporter"."first_name", "tests_reporter"."last_name", '
+            '"tests_reporter"."email", "tests_reporter"."a_choice", "tests_reporter"."reporter_type" '
+            'FROM "tests_reporter"  LIMIT 1'
+        )

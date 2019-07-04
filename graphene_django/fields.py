@@ -84,7 +84,17 @@ class DjangoConnectionField(ConnectionField):
 
     @classmethod
     def resolve_queryset(cls, connection, queryset, info, args):
-        return connection._meta.node.get_queryset(queryset, info)
+        db_query_fields = cls._get_qs_query_fields(connection)
+
+        return connection._meta.node.get_queryset(queryset, info).only(*db_query_fields)
+
+    @classmethod
+    def _get_qs_query_fields(cls, connection):
+        meta = connection._meta.node._meta
+        model_field_names = (field.name for field in meta.model._meta.fields)
+        meta_field_names = list(meta.fields.keys())
+
+        return set(model_field_names) & set(meta_field_names)
 
     @classmethod
     def merge_querysets(cls, default_queryset, queryset):
